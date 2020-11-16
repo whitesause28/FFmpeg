@@ -215,6 +215,8 @@ typedef struct OptionsContext {
     int        nb_passlogfiles;
     SpecifierOpt *max_muxing_queue_size;
     int        nb_max_muxing_queue_size;
+    SpecifierOpt *muxing_queue_data_threshold;
+    int        nb_muxing_queue_data_threshold;
     SpecifierOpt *guess_layout_max;
     int        nb_guess_layout_max;
     SpecifierOpt *apad;
@@ -547,6 +549,15 @@ typedef struct OutputStream {
     /* the packets are buffered here until the muxer is ready to be initialized */
     AVFifoBuffer *muxing_queue;
 
+    /*
+     * The size of the AVPackets' buffers in queue.
+     * Updated when a packet is either pushed or pulled from the queue.
+     */
+    size_t muxing_queue_data_size;
+
+    /* Threshold after which max_muxing_queue_size will be in effect */
+    size_t muxing_queue_data_threshold;
+
     /* packet picture type */
     int pict_type;
 
@@ -613,6 +624,7 @@ extern char *videotoolbox_pixfmt;
 extern int filter_nbthreads;
 extern int filter_complex_nbthreads;
 extern int vstats_version;
+extern int auto_conversion_filters;
 
 extern const AVIOInterruptCB int_cb;
 
@@ -637,8 +649,9 @@ void assert_avoptions(AVDictionary *m);
 
 int guess_input_channel_layout(InputStream *ist);
 
-enum AVPixelFormat choose_pixel_fmt(AVStream *st, AVCodecContext *avctx, AVCodec *codec, enum AVPixelFormat target);
-void choose_sample_fmt(AVStream *st, AVCodec *codec);
+enum AVPixelFormat choose_pixel_fmt(AVStream *st, AVCodecContext *avctx,
+                                    const AVCodec *codec, enum AVPixelFormat target);
+void choose_sample_fmt(AVStream *st, const AVCodec *codec);
 
 int configure_filtergraph(FilterGraph *fg);
 int configure_output_filter(FilterGraph *fg, OutputFilter *ofilter, AVFilterInOut *out);

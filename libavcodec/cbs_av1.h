@@ -284,8 +284,8 @@ typedef struct AV1RawFrameHeader {
 
 typedef struct AV1RawTileData {
     uint8_t     *data;
-    size_t       data_size;
     AVBufferRef *data_ref;
+    size_t       data_size;
 } AV1RawTileData;
 
 typedef struct AV1RawTileGroup {
@@ -346,8 +346,8 @@ typedef struct AV1RawMetadataITUTT35 {
     uint8_t itu_t_t35_country_code_extension_byte;
 
     uint8_t     *payload;
-    size_t       payload_size;
     AVBufferRef *payload_ref;
+    size_t       payload_size;
 } AV1RawMetadataITUTT35;
 
 typedef struct AV1RawMetadataTimecode {
@@ -379,8 +379,8 @@ typedef struct AV1RawMetadata {
 
 typedef struct AV1RawPadding {
     uint8_t     *payload;
-    size_t       payload_size;
     AVBufferRef *payload_ref;
+    size_t       payload_size;
 } AV1RawPadding;
 
 
@@ -413,6 +413,11 @@ typedef struct AV1ReferenceFrameState {
     int subsampling_y;  // RefSubsamplingY
     int bit_depth;      // RefBitDepth
     int order_hint;     // RefOrderHint
+
+    int8_t  loop_filter_ref_deltas[AV1_TOTAL_REFS_PER_FRAME];
+    int8_t  loop_filter_mode_deltas[2];
+    uint8_t feature_enabled[AV1_MAX_SEGMENTS][AV1_SEG_LVL_MAX];
+    int16_t feature_value[AV1_MAX_SEGMENTS][AV1_SEG_LVL_MAX];
 } AV1ReferenceFrameState;
 
 typedef struct CodedBitstreamAV1Context {
@@ -441,6 +446,7 @@ typedef struct CodedBitstreamAV1Context {
     int all_lossless;
     int tile_cols;
     int tile_rows;
+    int tile_num;
 
     AV1ReferenceFrameState ref[AV1_NUM_REF_FRAMES];
 } CodedBitstreamAV1Context;

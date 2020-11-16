@@ -172,7 +172,7 @@ static int rtsp_read_announce(AVFormatContext *s)
 {
     RTSPState *rt             = s->priv_data;
     RTSPMessageHeader request = { 0 };
-    char sdp[4096];
+    char sdp[SDP_MAX_SIZE];
     int  ret;
 
     ret = rtsp_read_request(s, &request, "ANNOUNCE");
@@ -291,7 +291,7 @@ static int rtsp_read_setup(AVFormatContext *s, char* host, char *controlurl)
             AVDictionary *opts = NULL;
             av_dict_set_int(&opts, "buffer_size", rt->buffer_size, 0);
             ff_url_join(url, sizeof(url), "rtp", NULL, host, localport, NULL);
-            av_log(s, AV_LOG_TRACE, "Opening: %s", url);
+            av_log(s, AV_LOG_TRACE, "Opening: %s\n", url);
             ret = ffurl_open_whitelist(&rtsp_st->rtp_handle, url, AVIO_FLAG_READ_WRITE,
                                        &s->interrupt_callback, &opts,
                                        s->protocol_whitelist, s->protocol_blacklist, NULL);
@@ -304,7 +304,7 @@ static int rtsp_read_setup(AVFormatContext *s, char* host, char *controlurl)
             return ret;
         }
 
-        av_log(s, AV_LOG_TRACE, "Listening on: %d",
+        av_log(s, AV_LOG_TRACE, "Listening on: %d\n",
                 ff_rtp_get_local_rtp_port(rtsp_st->rtp_handle));
         if ((ret = ff_rtsp_open_transport_ctx(s, rtsp_st))) {
             rtsp_send_reply(s, RTSP_STATUS_TRANSPORT, NULL, request.seq);
@@ -768,7 +768,7 @@ redo:
     }
     ret = ffurl_read_complete(rt->rtsp_hd, buf, 3);
     if (ret != 3)
-        return -1;
+        return AVERROR(EIO);
     id  = buf[0];
     len = AV_RB16(buf + 1);
     av_log(s, AV_LOG_TRACE, "id=%d len=%d\n", id, len);
@@ -777,10 +777,10 @@ redo:
     /* get the data */
     ret = ffurl_read_complete(rt->rtsp_hd, buf, len);
     if (ret != len)
-        return -1;
+        return AVERROR(EIO);
     if (rt->transport == RTSP_TRANSPORT_RDT &&
-        ff_rdt_parse_header(buf, len, &id, NULL, NULL, NULL, NULL) < 0)
-        return -1;
+        (ret = ff_rdt_parse_header(buf, len, &id, NULL, NULL, NULL, NULL)) < 0)
+        return ret;
 
     /* find the matching stream */
     for (i = 0; i < rt->nb_rtsp_streams; i++) {
