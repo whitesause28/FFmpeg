@@ -2436,9 +2436,6 @@ static void pmt_cb(MpegTSFilter *filter, const uint8_t *section, int section_len
                 if (!st)
                     goto out;
                 st->id = pes->pid;
-                st->program_num = h->id;
-                st->pmt_version = h->version;
-                st->pmt_stream_idx = i;
 		/* packets of private data PES may not start with 00 00 01 */
                 if (stream_type == 0x06)
                     ts->pids[pid]->type = MPEGTS_PRIV;
