@@ -387,7 +387,6 @@ static int discard_pid(MpegTSContext *ts, unsigned int pid)
 
     /* If none of the programs have .discard=AVDISCARD_ALL then there's
      * no way we have to discard this packet */
-    int idx = ff_find_stream_index(ts->stream, pid);
     for (k = 0; k < ts->stream->nb_programs; k++)
         if (ts->stream->programs[k]->discard == AVDISCARD_ALL)
             break;
