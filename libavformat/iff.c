@@ -259,6 +259,9 @@ static int parse_dsd_prop(AVFormatContext *s, AVStream *st, uint64_t eof)
         uint64_t size     = avio_rb64(pb);
         uint64_t orig_pos = avio_tell(pb);
 
+        if (size >= INT64_MAX)
+            return AVERROR_INVALIDDATA;
+
         switch(tag) {
         case MKTAG('A','B','S','S'):
             if (size < 8)
@@ -365,7 +368,7 @@ static int read_dst_frame(AVFormatContext *s, AVPacket *pkt)
         data_size = iff->is_64bit ? avio_rb64(pb) : avio_rb32(pb);
         data_pos = avio_tell(pb);
 
-        if (data_size < 1)
+        if (data_size < 1 || data_size >= INT64_MAX)
             return AVERROR_INVALIDDATA;
 
         switch (chunk_id) {
@@ -760,7 +763,7 @@ static int iff_read_header(AVFormatContext *s)
         st->codecpar->bits_per_coded_sample = av_get_bits_per_sample(st->codecpar->codec_id);
         st->codecpar->bit_rate = (int64_t)st->codecpar->channels * st->codecpar->sample_rate * st->codecpar->bits_per_coded_sample;
         st->codecpar->block_align = st->codecpar->channels * st->codecpar->bits_per_coded_sample;
-        if (st->codecpar->codec_tag == ID_DSD && st->codecpar->block_align <= 0)
+        if ((st->codecpar->codec_tag == ID_DSD || st->codecpar->codec_tag == ID_MAUD) && st->codecpar->block_align <= 0)
             return AVERROR_INVALIDDATA;
         break;
 
