@@ -21,18 +21,20 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include <stdint.h>
 #include <string.h>
 #include <sys/types.h>
 
 #include <mfx/mfxvideo.h>
 
 #include "libavutil/common.h"
+#include "libavutil/fifo.h"
+#include "libavutil/frame.h"
 #include "libavutil/hwcontext.h"
 #include "libavutil/hwcontext_qsv.h"
 #include "libavutil/mem.h"
 #include "libavutil/log.h"
 #include "libavutil/opt.h"
-#include "libavutil/pixdesc.h"
 #include "libavutil/pixfmt.h"
 #include "libavutil/time.h"
 #include "libavutil/imgutils.h"
@@ -40,11 +42,59 @@
 #include "avcodec.h"
 #include "internal.h"
 #include "decode.h"
+#include "hwconfig.h"
 #include "qsv.h"
 #include "qsv_internal.h"
-#include "qsvdec.h"
 
-const AVCodecHWConfigInternal *const ff_qsv_hw_configs[] = {
+static const AVRational mfx_tb = { 1, 90000 };
+
+#define PTS_TO_MFX_PTS(pts, pts_tb) ((pts) == AV_NOPTS_VALUE ? \
+    MFX_TIMESTAMP_UNKNOWN : pts_tb.num ? \
+    av_rescale_q(pts, pts_tb, mfx_tb) : pts)
+
+#define MFX_PTS_TO_PTS(mfx_pts, pts_tb) ((mfx_pts) == MFX_TIMESTAMP_UNKNOWN ? \
+    AV_NOPTS_VALUE : pts_tb.num ? \
+    av_rescale_q(mfx_pts, mfx_tb, pts_tb) : mfx_pts)
+
+typedef struct QSVContext {
+    // the session used for decoding
+    mfxSession session;
+
+    // the session we allocated internally, in case the caller did not provide
+    // one
+    QSVSession internal_qs;
+
+    QSVFramesContext frames_ctx;
+
+    /**
+     * a linked list of frames currently being used by QSV
+     */
+    QSVFrame *work_frames;
+
+    AVFifoBuffer *async_fifo;
+    int zero_consume_run;
+    int buffered_count;
+    int reinit_flag;
+
+    enum AVPixelFormat orig_pix_fmt;
+    uint32_t fourcc;
+    mfxFrameInfo frame_info;
+    AVBufferPool *pool;
+
+    int initialized;
+
+    // options set by the caller
+    int async_depth;
+    int iopattern;
+    int gpu_copy;
+
+    char *load_plugins;
+
+    mfxExtBuffer **ext_buffers;
+    int         nb_ext_buffers;
+} QSVContext;
+
+static const AVCodecHWConfigInternal *const qsv_hw_configs[] = {
     &(const AVCodecHWConfigInternal) {
         .public = {
             .pix_fmt     = AV_PIX_FMT_QSV,
@@ -57,7 +107,8 @@ const AVCodecHWConfigInternal *const ff_qsv_hw_configs[] = {
     NULL
 };
 
-static int ff_qsv_get_continuous_buffer(AVCodecContext *avctx, AVFrame *frame, AVBufferPool *pool)
+static int qsv_get_continuous_buffer(AVCodecContext *avctx, AVFrame *frame,
+                                     AVBufferPool *pool)
 {
     int ret = 0;
 
@@ -255,7 +306,9 @@ static int qsv_decode_init_context(AVCodecContext *avctx, QSVContext *q, mfxVide
     return 0;
 }
 
-static int qsv_decode_header(AVCodecContext *avctx, QSVContext *q, AVPacket *avpkt, enum AVPixelFormat pix_fmt, mfxVideoParam *param)
+static int qsv_decode_header(AVCodecContext *avctx, QSVContext *q,
+                             const AVPacket *avpkt, enum AVPixelFormat pix_fmt,
+                             mfxVideoParam *param)
 {
     int ret;
 
@@ -265,7 +318,7 @@ static int qsv_decode_header(AVCodecContext *avctx, QSVContext *q, AVPacket *avp
         bs.Data       = avpkt->data;
         bs.DataLength = avpkt->size;
         bs.MaxLength  = bs.DataLength;
-        bs.TimeStamp  = avpkt->pts;
+        bs.TimeStamp  = PTS_TO_MFX_PTS(avpkt->pts, avctx->pkt_timebase);
         if (avctx->field_order == AV_FIELD_PROGRESSIVE)
             bs.DataFlag   |= MFX_BITSTREAM_COMPLETE_FRAME;
     } else
@@ -299,7 +352,7 @@ static int alloc_frame(AVCodecContext *avctx, QSVContext *q, QSVFrame *frame)
     int ret;
 
     if (q->pool)
-        ret = ff_qsv_get_continuous_buffer(avctx, frame->frame, q->pool);
+        ret = qsv_get_continuous_buffer(avctx, frame->frame, q->pool);
     else
         ret = ff_get_buffer(avctx, frame->frame, AV_GET_BUFFER_FLAG_REF);
 
@@ -400,7 +453,7 @@ static QSVFrame *find_frame(QSVContext *q, mfxFrameSurface1 *surf)
 
 static int qsv_decode(AVCodecContext *avctx, QSVContext *q,
                       AVFrame *frame, int *got_frame,
-                      AVPacket *avpkt)
+                      const AVPacket *avpkt)
 {
     QSVFrame *out_frame;
     mfxFrameSurface1 *insurf;
@@ -413,7 +466,7 @@ static int qsv_decode(AVCodecContext *avctx, QSVContext *q,
         bs.Data       = avpkt->data;
         bs.DataLength = avpkt->size;
         bs.MaxLength  = bs.DataLength;
-        bs.TimeStamp  = avpkt->pts;
+        bs.TimeStamp  = PTS_TO_MFX_PTS(avpkt->pts, avctx->pkt_timebase);
         if (avctx->field_order == AV_FIELD_PROGRESSIVE)
             bs.DataFlag   |= MFX_BITSTREAM_COMPLETE_FRAME;
     }
@@ -501,12 +554,7 @@ static int qsv_decode(AVCodecContext *avctx, QSVContext *q,
 
         outsurf = &out_frame->surface;
 
-#if FF_API_PKT_PTS
-FF_DISABLE_DEPRECATION_WARNINGS
-        frame->pkt_pts = outsurf->Data.TimeStamp;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
-        frame->pts = outsurf->Data.TimeStamp;
+        frame->pts = MFX_PTS_TO_PTS(outsurf->Data.TimeStamp, avctx->pkt_timebase);
 
         frame->repeat_pict =
             outsurf->Info.PicStruct & MFX_PICSTRUCT_FRAME_TRIPLING ? 4 :
@@ -531,7 +579,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
     return bs.DataOffset;
 }
 
-int ff_qsv_decode_close(QSVContext *q)
+static void qsv_decode_close_qsvcontext(QSVContext *q)
 {
     QSVFrame *cur = q->work_frames;
 
@@ -563,12 +611,10 @@ int ff_qsv_decode_close(QSVContext *q)
     av_buffer_unref(&q->frames_ctx.hw_frames_ctx);
     av_buffer_unref(&q->frames_ctx.mids_buf);
     av_buffer_pool_uninit(&q->pool);
-
-    return 0;
 }
 
-int ff_qsv_process_data(AVCodecContext *avctx, QSVContext *q,
-                        AVFrame *frame, int *got_frame, AVPacket *pkt)
+static int qsv_process_data(AVCodecContext *avctx, QSVContext *q,
+                            AVFrame *frame, int *got_frame, const AVPacket *pkt)
 {
     int ret;
     mfxVideoParam param = { 0 };
@@ -629,12 +675,6 @@ reinit_fail:
     return ret;
 }
 
-void ff_qsv_decode_flush(AVCodecContext *avctx, QSVContext *q)
-{
-    q->orig_pix_fmt = AV_PIX_FMT_NONE;
-    q->initialized = 0;
-}
-
 enum LoadPlugin {
     LOAD_PLUGIN_NONE,
     LOAD_PLUGIN_HEVC_SW,
@@ -669,7 +709,7 @@ static av_cold int qsv_decode_close(AVCodecContext *avctx)
 
     av_freep(&s->qsv.load_plugins);
 
-    ff_qsv_decode_close(&s->qsv);
+    qsv_decode_close_qsvcontext(&s->qsv);
 
     qsv_clear_buffers(s);
 
@@ -718,6 +758,9 @@ static av_cold int qsv_decode_init(AVCodecContext *avctx)
         goto fail;
     }
 
+    if (!avctx->pkt_timebase.num)
+        av_log(avctx, AV_LOG_WARNING, "Invalid pkt_timebase, passing timestamps as-is.\n");
+
     return 0;
 fail:
     qsv_decode_close(avctx);
@@ -754,7 +797,7 @@ static int qsv_decode_frame(AVCodecContext *avctx, void *data,
         if (s->buffer_pkt.size <= 0) {
             /* no more data */
             if (av_fifo_size(s->packet_fifo) < sizeof(AVPacket))
-                return avpkt->size ? avpkt->size : ff_qsv_process_data(avctx, &s->qsv, frame, got_frame, avpkt);
+                return avpkt->size ? avpkt->size : qsv_process_data(avctx, &s->qsv, frame, got_frame, avpkt);
             /* in progress of reinit, no read from fifo and keep the buffer_pkt */
             if (!s->qsv.reinit_flag) {
                 av_packet_unref(&s->buffer_pkt);
@@ -762,7 +805,7 @@ static int qsv_decode_frame(AVCodecContext *avctx, void *data,
             }
         }
 
-        ret = ff_qsv_process_data(avctx, &s->qsv, frame, got_frame, &s->buffer_pkt);
+        ret = qsv_process_data(avctx, &s->qsv, frame, got_frame, &s->buffer_pkt);
         if (ret < 0){
             /* Drop buffer_pkt when failed to decode the packet. Otherwise,
                the decoder will keep decoding the failure packet. */
@@ -784,7 +827,9 @@ static void qsv_decode_flush(AVCodecContext *avctx)
     QSVDecContext *s = avctx->priv_data;
 
     qsv_clear_buffers(s);
-    ff_qsv_decode_flush(avctx, &s->qsv);
+
+    s->qsv.orig_pix_fmt = AV_PIX_FMT_NONE;
+    s->qsv.initialized = 0;
 }
 
 #define OFFSET(x) offsetof(QSVDecContext, x)
@@ -797,7 +842,7 @@ static const AVClass x##_qsv_class = { \
     .option     = opt, \
     .version    = LIBAVUTIL_VERSION_INT, \
 }; \
-AVCodec ff_##x##_qsv_decoder = { \
+const AVCodec ff_##x##_qsv_decoder = { \
     .name           = #x "_qsv", \
     .long_name      = NULL_IF_CONFIG_SMALL(#X " video (Intel Quick Sync Video acceleration)"), \
     .priv_data_size = sizeof(QSVDecContext), \
@@ -814,7 +859,7 @@ AVCodec ff_##x##_qsv_decoder = { \
                                                     AV_PIX_FMT_P010, \
                                                     AV_PIX_FMT_QSV, \
                                                     AV_PIX_FMT_NONE }, \
-    .hw_configs     = ff_qsv_hw_configs, \
+    .hw_configs     = qsv_hw_configs, \
     .wrapper_name   = "qsv", \
 }; \
 

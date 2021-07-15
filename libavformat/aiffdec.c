@@ -212,7 +212,7 @@ static int aiff_read_header(AVFormatContext *s)
     AVIOContext *pb = s->pb;
     AVStream * st;
     AIFFInputContext *aiff = s->priv_data;
-    ID3v2ExtraMeta *id3v2_extra_meta = NULL;
+    ID3v2ExtraMeta *id3v2_extra_meta;
 
     /* check FORM header */
     filesize = get_tag(pb, &tag);
@@ -286,6 +286,8 @@ static int aiff_read_header(AVFormatContext *s)
             get_meta(s, "comment"  , size);
             break;
         case MKTAG('S', 'S', 'N', 'D'):     /* Sampled sound chunk */
+            if (size < 8)
+                return AVERROR_INVALIDDATA;
             aiff->data_end = avio_tell(pb) + size;
             offset = avio_rb32(pb);      /* Offset of sound data */
             avio_rb32(pb);               /* BlockSize... don't care */
@@ -422,7 +424,7 @@ static int aiff_read_packet(AVFormatContext *s,
     return 0;
 }
 
-AVInputFormat ff_aiff_demuxer = {
+const AVInputFormat ff_aiff_demuxer = {
     .name           = "aiff",
     .long_name      = NULL_IF_CONFIG_SMALL("Audio IFF"),
     .priv_data_size = sizeof(AIFFInputContext),

@@ -307,14 +307,16 @@ typedef struct InputStream {
 #define DECODING_FOR_FILTER 2
 
     AVCodecContext *dec_ctx;
-    AVCodec *dec;
+    const AVCodec *dec;
     AVFrame *decoded_frame;
     AVFrame *filter_frame; /* a ref of decoded_frame, to be sent to filters */
+    AVPacket *pkt;
 
     int64_t       start;     /* time when read started */
     /* predicted dts of the next packet read for this stream or (when there are
      * several frames in a packet) of the next frame in current packet (in AV_TIME_BASE units) */
     int64_t       next_dts;
+    int64_t first_dts;       ///< dts of the first packet read for this stream (in AV_TIME_BASE units)
     int64_t       dts;       ///< dts of the last packet read for this stream (in AV_TIME_BASE units)
 
     int64_t       next_pts;  ///< synthetic pts for the next decode frame (in AV_TIME_BASE units)
@@ -418,6 +420,8 @@ typedef struct InputFile {
     int rate_emu;
     int accurate_seek;
 
+    AVPacket *pkt;
+
 #if HAVE_THREADS
     AVThreadMessageQueue *in_thread_queue;
     pthread_t thread;           /* thread reading from this file */
@@ -470,10 +474,11 @@ typedef struct OutputStream {
 
     AVCodecContext *enc_ctx;
     AVCodecParameters *ref_par; /* associated input codec parameters with encoders options applied */
-    AVCodec *enc;
+    const AVCodec *enc;
     int64_t max_frames;
     AVFrame *filtered_frame;
     AVFrame *last_frame;
+    AVPacket *pkt;
     int last_dropped;
     int last_nb0_frames[3];
 

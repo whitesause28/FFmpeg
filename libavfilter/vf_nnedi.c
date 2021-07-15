@@ -903,7 +903,7 @@ static void subtract_mean_predictor(PredictorCoefficients *model)
 
     double softmax_means[256]; // Average of individual softmax filters.
     double elliott_means[256]; // Average of individual elliott filters.
-    double mean_filter[48 * 6]; // Pointwise average of all softmax filters.
+    double mean_filter[48 * 6] = { 0 }; // Pointwise average of all softmax filters.
     double mean_bias;
 
     // Quality 1.
@@ -1158,7 +1158,7 @@ static const AVFilterPad outputs[] = {
     { NULL }
 };
 
-AVFilter ff_vf_nnedi = {
+const AVFilter ff_vf_nnedi = {
     .name          = "nnedi",
     .description   = NULL_IF_CONFIG_SMALL("Apply neural network edge directed interpolation intra-only deinterlacer."),
     .priv_size     = sizeof(NNEDIContext),

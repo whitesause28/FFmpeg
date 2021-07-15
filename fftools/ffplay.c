@@ -203,7 +203,7 @@ typedef struct Decoder {
 
 typedef struct VideoState {
     SDL_Thread *read_tid;
-    AVInputFormat *iformat;
+    const AVInputFormat *iformat;
     int abort_request;
     int force_refresh;
     int paused;
@@ -308,7 +308,7 @@ typedef struct VideoState {
 } VideoState;
 
 /* options specified by the user */
-static AVInputFormat *file_iformat;
+static const AVInputFormat *file_iformat;
 static const char *input_filename;
 static const char *window_title;
 static int default_width  = 640;
@@ -965,10 +965,10 @@ static void set_sdl_yuv_conversion_mode(AVFrame *frame)
             mode = SDL_YUV_CONVERSION_JPEG;
         else if (frame->colorspace == AVCOL_SPC_BT709)
             mode = SDL_YUV_CONVERSION_BT709;
-        else if (frame->colorspace == AVCOL_SPC_BT470BG || frame->colorspace == AVCOL_SPC_SMPTE170M || frame->colorspace == AVCOL_SPC_SMPTE240M)
+        else if (frame->colorspace == AVCOL_SPC_BT470BG || frame->colorspace == AVCOL_SPC_SMPTE170M)
             mode = SDL_YUV_CONVERSION_BT601;
     }
-    SDL_SetYUVConversionMode(mode);
+    SDL_SetYUVConversionMode(mode); /* FIXME: no support for linear transfer */
 #endif
 }
 
@@ -1148,6 +1148,8 @@ static void video_audio_display(VideoState *s)
         if (realloc_texture(&s->vis_texture, SDL_PIXELFORMAT_ARGB8888, s->width, s->height, SDL_BLENDMODE_NONE, 1) < 0)
             return;
 
+        if (s->xpos >= s->width)
+            s->xpos = 0;
         nb_display_channels= FFMIN(nb_display_channels, 2);
         if (rdft_bits != s->rdft_bits) {
             av_rdft_end(s->rdft);
@@ -1197,8 +1199,6 @@ static void video_audio_display(VideoState *s)
         }
         if (!s->paused)
             s->xpos++;
-        if (s->xpos >= s->width)
-            s->xpos= s->xleft;
     }
 }
 
@@ -2573,7 +2573,7 @@ static int stream_component_open(VideoState *is, int stream_index)
 {
     AVFormatContext *ic = is->ic;
     AVCodecContext *avctx;
-    AVCodec *codec;
+    const AVCodec *codec;
     const char *forced_codec_name = NULL;
     AVDictionary *opts = NULL;
     AVDictionaryEntry *t = NULL;
@@ -3075,7 +3075,8 @@ static int read_thread(void *arg)
     return 0;
 }
 
-static VideoState *stream_open(const char *filename, AVInputFormat *iformat)
+static VideoState *stream_open(const char *filename,
+                               const AVInputFormat *iformat)
 {
     VideoState *is;
 

@@ -1,5 +1,6 @@
 /*
  * MobiClip Video decoder
+ * Copyright (c) 2015-2016 Florian Nouwt
  * Copyright (c) 2017 Adib Surani
  * Copyright (c) 2020 Paul B Mahol
  *
@@ -1091,8 +1092,8 @@ static int predict_motion(AVCodecContext *avctx,
             sidx += 6;
 
         if (index > 0) {
-            mv.x = mv.x + get_se_golomb(gb);
-            mv.y = mv.y + get_se_golomb(gb);
+            mv.x = mv.x + (unsigned)get_se_golomb(gb);
+            mv.y = mv.y + (unsigned)get_se_golomb(gb);
         }
         if (mv.x >= INT_MAX || mv.y >= INT_MAX)
             return AVERROR_INVALIDDATA;
@@ -1339,7 +1340,7 @@ static av_cold int mobiclip_close(AVCodecContext *avctx)
     return 0;
 }
 
-AVCodec ff_mobiclip_decoder = {
+const AVCodec ff_mobiclip_decoder = {
     .name           = "mobiclip",
     .long_name      = NULL_IF_CONFIG_SMALL("MobiClip Video"),
     .type           = AVMEDIA_TYPE_VIDEO,

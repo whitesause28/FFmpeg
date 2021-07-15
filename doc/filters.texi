@@ -1947,7 +1947,7 @@ by this filter if this option is disabled. By default is enabled.
 This filter supports the following commands:
 @table @option
 @item weights
-@item sum
+@item normalize
 Syntax is same as option with same name.
 @end table
 
@@ -9818,12 +9818,6 @@ specified.
 Specify the width and height of the logo to clear. They must be
 specified.
 
-@item band, t
-Specify the thickness of the fuzzy edge of the rectangle (added to
-@var{w} and @var{h}). The default value is 1. This option is
-deprecated, setting higher values should no longer be necessary and
-is not recommended.
-
 @item show
 When set to 1, a green rectangle is drawn on the screen to simplify
 finding the right @var{x}, @var{y}, @var{w}, and @var{h} parameters.
@@ -9841,9 +9835,9 @@ compute the interpolated pixel values inside the rectangle.
 @itemize
 @item
 Set a rectangle covering the area with top left corner coordinates 0,0
-and size 100x77, and a band of size 10:
+and size 100x77:
 @example
-delogo=x=0:y=0:w=100:h=77:band=10
+delogo=x=0:y=0:w=100:h=77
 @end example
 
 @end itemize
@@ -9892,7 +9886,7 @@ Native implementation of DNN loading and execution.
 @item tensorflow
 TensorFlow backend. To enable this backend you
 need to install the TensorFlow for C library (see
-@url{https://www.tensorflow.org/install/install_c}) and configure FFmpeg with
+@url{https://www.tensorflow.org/install/lang_c}) and configure FFmpeg with
 @code{--enable-libtensorflow}
 @end table
 Default value is @samp{native}.
@@ -10133,6 +10127,85 @@ ffmpeg -i INPUT -f lavfi -i nullsrc=hd720,geq='r=128+80*(sin(sqrt((X-W/2)*(X-W/2
 @end example
 @end itemize
 
+@section dnn_classify
+
+Do classification with deep neural networks based on bounding boxes.
+
+The filter accepts the following options:
+
+@table @option
+@item dnn_backend
+Specify which DNN backend to use for model loading and execution. This option accepts
+only openvino now, tensorflow backends will be added.
+
+@item model
+Set path to model file specifying network architecture and its parameters.
+Note that different backends use different file formats.
+
+@item input
+Set the input name of the dnn network.
+
+@item output
+Set the output name of the dnn network.
+
+@item confidence
+Set the confidence threshold (default: 0.5).
+
+@item labels
+Set path to label file specifying the mapping between label id and name.
+Each label name is written in one line, tailing spaces and empty lines are skipped.
+The first line is the name of label id 0,
+and the second line is the name of label id 1, etc.
+The label id is considered as name if the label file is not provided.
+
+@item backend_configs
+Set the configs to be passed into backend
+
+For tensorflow backend, you can set its configs with @option{sess_config} options,
+please use tools/python/tf_sess_config.py to get the configs for your system.
+
+@end table
+
+@section dnn_detect
+
+Do object detection with deep neural networks.
+
+The filter accepts the following options:
+
+@table @option
+@item dnn_backend
+Specify which DNN backend to use for model loading and execution. This option accepts
+only openvino now, tensorflow backends will be added.
+
+@item model
+Set path to model file specifying network architecture and its parameters.
+Note that different backends use different file formats.
+
+@item input
+Set the input name of the dnn network.
+
+@item output
+Set the output name of the dnn network.
+
+@item confidence
+Set the confidence threshold (default: 0.5).
+
+@item labels
+Set path to label file specifying the mapping between label id and name.
+Each label name is written in one line, tailing spaces and empty lines are skipped.
+The first line is the name of label id 0 (usually it is 'background'),
+and the second line is the name of label id 1, etc.
+The label id is considered as name if the label file is not provided.
+
+@item backend_configs
+Set the configs to be passed into backend
+
+@item async
+use DNN async execution if set (default: set),
+roll back to sync execution if the backend does not support async.
+
+@end table
+
 @anchor{dnn_processing}
 @section dnn_processing
 
@@ -10153,7 +10226,7 @@ Native implementation of DNN loading and execution.
 @item tensorflow
 TensorFlow backend. To enable this backend you
 need to install the TensorFlow for C library (see
-@url{https://www.tensorflow.org/install/install_c}) and configure FFmpeg with
+@url{https://www.tensorflow.org/install/lang_c}) and configure FFmpeg with
 @code{--enable-libtensorflow}
 
 @item openvino
@@ -10179,6 +10252,12 @@ Set the input name of the dnn network.
 
 @item output
 Set the output name of the dnn network.
+
+@item backend_configs
+Set the configs to be passed into backend
+
+For tensorflow backend, you can set its configs with @option{sess_config} options,
+please use tools/python/tf_sess_config.py to get the configs of TensorFlow backend for your system.
 
 @item async
 use DNN async execution if set (default: set),
@@ -10208,9 +10287,10 @@ Handle the Y channel with srcnn.pb (see @ref{sr} filter) for frame with yuv420p 
 @end example
 
 @item
-Handle the Y channel with espcn.pb (see @ref{sr} filter), which changes frame size, for format yuv420p (planar YUV formats supported):
+Handle the Y channel with espcn.pb (see @ref{sr} filter), which changes frame size, for format yuv420p (planar YUV formats supported),
+please use tools/python/tf_sess_config.py to get the configs of TensorFlow backend for your system.
 @example
-./ffmpeg -i 480p.jpg -vf format=yuv420p,dnn_processing=dnn_backend=tensorflow:model=espcn.pb:input=x:output=y -y tmp.espcn.jpg
+./ffmpeg -i 480p.jpg -vf format=yuv420p,dnn_processing=dnn_backend=tensorflow:model=espcn.pb:input=x:output=y:backend_configs=sess_config=0x10022805320e09cdccccccccccec3f20012a01303801 -y tmp.espcn.jpg
 @end example
 
 @end itemize
@@ -10275,6 +10355,14 @@ The x and y offset coordinates where the box is drawn.
 @item w
 @item h
 The width and height of the drawn box.
+
+@item box_source
+Box source can be set as side_data_detection_bboxes if you want to use box data in
+detection bboxes of side data.
+
+If @var{box_source} is set, the @var{x}, @var{y}, @var{width} and @var{height} will be ignored and
+still use box data in detection bboxes of side data. So please do not use this parameter if you were
+not sure about the box source.
 
 @item t
 The thickness of the drawn box.
@@ -10699,6 +10787,14 @@ This parameter is mandatory if no text string is specified with the
 parameter @var{text}.
 
 If both @var{text} and @var{textfile} are specified, an error is thrown.
+
+@item text_source
+Text source should be set as side_data_detection_bboxes if you want to use text data in
+detection bboxes of side data.
+
+If text source is set, @var{text} and @var{textfile} will be ignored and still use
+text data in detection bboxes of side data. So please do not use this parameter
+if you are not sure about the text source.
 
 @item reload
 If set to 1, the @var{textfile} will be reloaded before each frame.
@@ -11128,7 +11224,7 @@ will try to use a good random seed on a best effort basis.
 
 @item pal8
 Set pal8 output pixel format. This option does not work with codebook
-length greater than 256.
+length greater than 256. Default is disabled.
 @end table
 
 @section entropy
@@ -12145,6 +12241,9 @@ Number of mipmaps, default is 3.
 
 @item xmin, ymin, xmax, ymax
 Specifies the rectangle in which to search.
+
+@item discard
+Discard frames where object is not detected. Default is disabled.
 @end table
 
 @subsection Examples
@@ -12235,7 +12334,27 @@ It accepts the following parameters:
 @table @option
 
 @item fps
-The desired output frame rate. The default is @code{25}.
+The desired output frame rate. It accepts expressions containing the following
+constants:
+
+@table @samp
+@item source_fps
+The input's frame rate
+
+@item ntsc
+NTSC frame rate of @code{30000/1001}
+
+@item pal
+PAL frame rate of @code{25.0}
+
+@item film
+Film frame rate of @code{24.0}
+
+@item ntsc_film
+NTSC-film frame rate of @code{24000/1001}
+@end table
+
+The default is @code{25}.
 
 @item start_time
 Assume the first PTS should be the given value, in seconds. This allows for
@@ -12874,6 +12993,59 @@ greyedge=difford=1:minknorm=0:sigma=2
 
 @end itemize
 
+@section guided
+Apply guided filter for edge-preserving smoothing, dehazing and so on.
+
+The filter accepts the following options:
+@table @option
+@item radius
+Set the box radius in pixels.
+Allowed range is 1 to 20. Default is 3.
+
+@item eps
+Set regularization parameter (with square).
+Allowed range is 0 to 1. Default is 0.01.
+
+@item mode
+Set filter mode. Can be @code{basic} or @code{fast}.
+Default is @code{basic}.
+
+@item sub
+Set subsampling ratio for @code{fast} mode.
+Range is 2 to 64. Default is 4.
+No subsampling occurs in @code{basic} mode.
+
+@item guidance
+Set guidance mode. Can be @code{off} or @code{on}. Default is @code{off}.
+If @code{off}, single input is required.
+If @code{on}, two inputs of the same resolution and pixel format are required.
+The second input serves as the guidance.
+
+@item planes
+Set planes to filter. Default is first only.
+@end table
+
+@subsection Commands
+This filter supports the all above options as @ref{commands}.
+
+@subsection Examples
+@itemize
+@item
+Edge-preserving smoothing with guided filter:
+@example
+ffmpeg -i in.png -vf guided out.png
+@end example
+
+@item
+Dehazing, structure-transferring filtering, detail enhancement with guided filter.
+For the generation of guidance image, refer to paper "Guided Image Filtering".
+See: @url{http://kaiminghe.com/publications/pami12guidedfilter.pdf}.
+@example
+ffmpeg -i in.png -i guidance.png -filter_complex guided=guidance=on out.png
+@end example
+
+@end itemize
+
 @anchor{haldclut}
 @section haldclut
 
@@ -13382,6 +13554,28 @@ By default value is 0.
 
 The @code{hysteresis} filter also supports the @ref{framesync} options.
 
+@section identity
+
+Obtain the identity score between two input videos.
+
+This filter takes two input videos.
+
+Both input videos must have the same resolution and pixel format for
+this filter to work correctly. Also it assumes that both inputs
+have the same number of frames, which are compared one by one.
+
+The obtained per component, average, min and max identity score is printed through
+the logging system.
+
+The filter stores the calculated identity scores of each frame in frame metadata.
+
+In the below example the input file @file{main.mpg} being processed is compared
+with the reference file @file{ref.mpg}.
+
+@example
+ffmpeg -i main.mpg -i ref.mpg -lavfi identity -f null -
+@end example
+
 @section idet
 
 Detect video interlacing type.
@@ -13853,6 +14047,8 @@ ffmpeg -i input.mov -vf lensfun=make=Canon:model="Canon EOS 100D":lens_model="Ca
 
 Obtain the VMAF (Video Multi-Method Assessment Fusion)
 score between two input videos.
+
+The first input is the encoded video, and the second input is the reference video.
 
 The obtained VMAF score is printed through the logging system.
 
@@ -14497,6 +14693,8 @@ Apply motion-compensation deinterlacing.
 It needs one field per frame as input and must thus be used together
 with yadif=1/3 or equivalent.
 
+This filter is only available in ffmpeg version 4.4 or earlier.
+
 This filter accepts the following options:
 @table @option
 @item mode
@@ -14779,7 +14977,7 @@ Mix several video input streams into one video stream.
 A description of the accepted options follows.
 
 @table @option
-@item nb_inputs
+@item inputs
 The number of inputs. If unspecified, it defaults to 2.
 
 @item weights
@@ -14881,6 +15079,27 @@ Default value for @option{hi} is 64*12, default value for @option{lo} is
 64*5, and default value for @option{frac} is 0.33.
 @end table
 
+@section msad
+
+Obtain the MSAD (Mean Sum of Absolute Differences) between two input videos.
+
+This filter takes two input videos.
+
+Both input videos must have the same resolution and pixel format for
+this filter to work correctly. Also it assumes that both inputs
+have the same number of frames, which are compared one by one.
+
+The obtained per component, average, min and max MSAD is printed through
+the logging system.
+
+The filter stores the calculated MSAD of each frame in frame metadata.
+
+In the below example the input file @file{main.mpg} being processed is compared
+with the reference file @file{ref.mpg}.
+
+@example
+ffmpeg -i main.mpg -i ref.mpg -lavfi msad -f null -
+@end example
 
 @section negate
 
@@ -17619,6 +17838,90 @@ If the specified expression is not valid, it is kept at its current
 value.
 @end table
 
+@section scale_cuda
+
+Scale (resize) and convert (pixel format) the input video, using accelerated CUDA kernels.
+Setting the output width and height works in the same way as for the @ref{scale} filter.
+
+The filter accepts the following options:
+@table @option
+@item w
+@item h
+Set the output video dimension expression. Default value is the input dimension.
+
+Allows for the same expressions as the @ref{scale} filter.
+
+@item interp_algo
+Sets the algorithm used for scaling:
+
+@table @var
+@item nearest
+Nearest neighbour
+
+Used by default if input parameters match the desired output.
+
+@item bilinear
+Bilinear
+
+@item bicubic
+Bicubic
+
+This is the default.
+
+@item lanczos
+Lanczos
+
+@end table
+
+@item format
+Controls the output pixel format. By default, or if none is specified, the input
+pixel format is used.
+
+The filter does not support converting between YUV and RGB pixel formats.
+
+@item passthrough
+If set to 0, every frame is processed, even if no conversion is neccesary.
+This mode can be useful to use the filter as a buffer for a downstream
+frame-consumer that exhausts the limited decoder frame pool.
+
+If set to 1, frames are passed through as-is if they match the desired output
+parameters. This is the default behaviour.
+
+@item param
+Algorithm-Specific parameter.
+
+Affects the curves of the bicubic algorithm.
+
+@item force_original_aspect_ratio
+@item force_divisible_by
+Work the same as the identical @ref{scale} filter options.
+
+@end table
+
+@subsection Examples
+
+@itemize
+@item
+Scale input to 720p, keeping aspect ratio and ensuring the output is yuv420p.
+@example
+scale_cuda=-2:720:format=yuv420p
+@end example
+
+@item
+Upscale to 4K using nearest neighbour algorithm.
+@example
+scale_cuda=4096:2160:interp_algo=nearest
+@end example
+
+@item
+Don't do any conversion or scaling, but copy all input frames into newly allocated ones.
+This can be useful to deal with a filter and encode chain that otherwise exhausts the
+decoders frame pool.
+@example
+scale_cuda=passthrough=0
+@end example
+@end itemize
+
 @section scale_npp
 
 Use the NVIDIA Performance Primitives (libnpp) to perform scaling and/or pixel
@@ -18813,7 +19116,7 @@ Native implementation of DNN loading and execution.
 @item tensorflow
 TensorFlow backend. To enable this backend you
 need to install the TensorFlow for C library (see
-@url{https://www.tensorflow.org/install/install_c}) and configure FFmpeg with
+@url{https://www.tensorflow.org/install/lang_c}) and configure FFmpeg with
 @code{--enable-libtensorflow}
 @end table
 
@@ -20370,6 +20673,8 @@ The way this differs from the behavior of spp is that uspp actually encodes &
 decodes each case with libavcodec Snow, whereas spp uses a simplified intra only 8x8
 DCT similar to MJPEG.
 
+This filter is only available in ffmpeg version 4.4 or earlier.
+
 The filter accepts the following options:
 
 @table @option
@@ -20670,6 +20975,9 @@ If diagonal field of view is set it overrides horizontal and vertical field of v
 
 @item octahedron
 Octahedron projection.
+
+@item cylindricalea
+Cylindrical Equal Area projection.
 @end table
 
 @item interp
@@ -21723,6 +22031,9 @@ Default is @code{3}.
 Apply cross fade from one input video stream to another input video stream.
 The cross fade is applied for specified duration.
 
+Both inputs must be constant frame-rate and have the same resolution, pixel format,
+frame rate and timebase.
+
 The filter accepts the following options:
 
 @table @option
@@ -22127,7 +22438,7 @@ Set the x and y expression. Default is 0.
 @item d
 Set the duration expression in number of frames.
 This sets for how many number of frames effect will last for
-single input image.
+single input image. Default is 90.
 
 @item s
 Set the output image size, default is 'hd720'.
@@ -25118,10 +25429,10 @@ The expression is evaluated through the eval API and can contain the following
 constants:
 
 @table @option
-@item VALUE1
+@item VALUE1, FRAMEVAL
 Float representation of @code{value} from metadata key.
 
-@item VALUE2
+@item VALUE2, USERVAL
 Float representation of @code{value} as supplied by user in @code{value} option.
 @end table
 
